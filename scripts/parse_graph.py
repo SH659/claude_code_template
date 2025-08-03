@@ -23,7 +23,7 @@ class Edge:
     """
     source: str
     target: str
-    edge_type: str  # inherits, associates, uses, imports
+    edge_type: str  # inherits, associates, uses, imports, creates
     certainty: str = "high"  # high, low
     is_builtin: bool = False  # True if target is a built-in function
     is_stdlib: bool = False   # True if target is from standard library
@@ -591,6 +591,7 @@ class ASTVisitor(ast.NodeVisitor):
         """
         certainty = "high"
         target = None
+        edge_type = "uses"  # Default edge type
         
         if isinstance(node.func, ast.Name):
             # Direct function call: func()
@@ -605,6 +606,11 @@ class ASTVisitor(ast.NodeVisitor):
                 if not target:
                     target = f"{self.module_name}.{func_name}"
                     certainty = "low"
+                
+                # Check if this is a constructor call (class instantiation)
+                if target and self._is_constructor_call(func_name, target):
+                    edge_type = "creates"
+                    certainty = "high"
         
         elif isinstance(node.func, ast.Attribute):
             # Method call: obj.method() or module.func()
@@ -616,7 +622,7 @@ class ASTVisitor(ast.NodeVisitor):
             self.edges.append(Edge(
                 source=self.current_scope,
                 target=target,
-                edge_type="uses",
+                edge_type=edge_type,
                 certainty=certainty,
                 is_builtin=self.analyzer._is_builtin(target),
                 is_stdlib=self.analyzer._is_stdlib(target),
@@ -704,6 +710,26 @@ class ASTVisitor(ast.NodeVisitor):
         
         return None, "low"
     
+    def _is_constructor_call(self, func_name: str, target: str) -> bool:
+        """
+        PURPOSE: Determine if a function call is actually a class constructor
+        """
+        # Check if the target is a known class in our symbol table
+        if target in self.symbol_table.classes.values():
+            return True
+        
+        # Check if func_name matches any class name we know about
+        if func_name in self.symbol_table.classes:
+            return True
+        
+        # Check if the target ends with a class name (module.ClassName)
+        if '.' in target:
+            class_name = target.split('.')[-1]
+            # Use simple heuristic: class names typically start with uppercase
+            if class_name and class_name[0].isupper():
+                return True
+        
+        return False
     
     def _resolve_attribute_chain(self, attr_node: ast.AST) -> Optional[str]:
         """
