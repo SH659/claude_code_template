@@ -30,6 +30,10 @@ class CodeGraphGenerator:
         self.edges: List[Edge] = []
         self.dependency_map: Dict[str, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
         
+        # Configuration flags
+        self.use_full_prefixes: bool = False
+        self.use_subtags: bool = True
+        
     def analyze_project(self):
         """
         PURPOSE: Run complete analysis of project structure and dependencies
@@ -205,13 +209,21 @@ class CodeGraphGenerator:
                       .replace("\"", "&quot;")
                       .replace("'", "&apos;"))
     
-    def _get_tag_path(self, qualified_name: str) -> str:
+    def _get_tag_name(self, qualified_name: str, section: str = None) -> str:
         """
-        PURPOSE: Convert qualified name to XML tag hierarchy
-        DESCRIPTION: Transforms module.class.method to CODE_GRAPH_module_class_method format
+        PURPOSE: Convert qualified name to XML tag name
+        DESCRIPTION: Transforms module.class.method based on prefix configuration
         """
         parts = qualified_name.split('.')
-        return "CODE_GRAPH_" + "_".join(parts)
+        if self.use_full_prefixes:
+            base_name = "_".join(parts)
+            if section:
+                return f"{base_name}_{section}"
+            return base_name
+        else:
+            if section:
+                return section
+            return parts[-1]  # Just the element name
     
     def _parse_enhanced_docstring(self, docstring: str) -> dict:
         """
@@ -274,7 +286,8 @@ class CodeGraphGenerator:
         }
     
     def generate_xml(self, include_builtin: bool = True, include_stdlib: bool = True,
-                    include_self_dep: bool = True, include_certainty: str = "all") -> str:
+                    include_self_dep: bool = True, include_certainty: str = "all",
+                    use_full_prefixes: bool = False, use_subtags: bool = True) -> str:
         """
         PURPOSE: Generate complete XML code graph with filtering
         DESCRIPTION: Creates hierarchical XML structure with embedded dependencies
@@ -283,9 +296,14 @@ class CodeGraphGenerator:
             include_stdlib: bool - Include standard library dependencies  
             include_self_dep: bool - Include internal dependencies
             include_certainty: str - Filter by certainty level (all, high, low)
+            use_full_prefixes: bool - Use full prefixes (auth_api_errors_ApiErrors_PURPOSE) vs simple names (PURPOSE)
+            use_subtags: bool - Use subtags format vs plain text with indentation
         RETURNS: str - Complete XML content
         """
-        xml_lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<CODE_GRAPH>']
+        self.use_full_prefixes = use_full_prefixes
+        self.use_subtags = use_subtags
+        
+        xml_lines = []
         
         # Group elements by module hierarchy
         module_hierarchy = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -309,10 +327,10 @@ class CodeGraphGenerator:
         
         # Generate XML for each module
         for module_name in sorted(module_hierarchy.keys()):
-            xml_lines.append(f'<CODE_GRAPH_{module_name}>')
+            xml_lines.append(f'<{module_name}>')
             
             for submodule_name in sorted(module_hierarchy[module_name].keys()):
-                xml_lines.append(f'<CODE_GRAPH_{module_name}_{submodule_name}>')
+                xml_lines.append(f'<{module_name}_{submodule_name}>')
                 
                 # Add classes first
                 for qualified_name, element in sorted(module_hierarchy[module_name][submodule_name]["classes"]):
@@ -326,11 +344,11 @@ class CodeGraphGenerator:
                                              include_builtin, include_stdlib,
                                              include_self_dep, include_certainty)
                 
-                xml_lines.append(f'</CODE_GRAPH_{module_name}_{submodule_name}>')
+                xml_lines.append(f'</{module_name}_{submodule_name}>')
             
-            xml_lines.append(f'</CODE_GRAPH_{module_name}>')
+            xml_lines.append(f'</{module_name}>')
         
-        xml_lines.append('</CODE_GRAPH>')
+        # No closing tag needed since we removed the root GRAPH tag
         return '\n'.join(xml_lines)
     
     def _generate_element_xml(self, xml_lines: List[str], qualified_name: str, 
@@ -341,45 +359,83 @@ class CodeGraphGenerator:
         PURPOSE: Generate XML section for a single code element
         DESCRIPTION: Creates hierarchical XML tags with docstring information and dependencies
         """
-        tag_path = self._get_tag_path(qualified_name)
-        xml_lines.append(f'<{tag_path}>')
+        tag_name = self._get_tag_name(qualified_name)
+        xml_lines.append(f'<{tag_name}>')
         
+        if self.use_subtags:
+            self._generate_subtags_format(xml_lines, qualified_name, element, 
+                                        include_builtin, include_stdlib, 
+                                        include_self_dep, include_certainty)
+        else:
+            self._generate_text_format(xml_lines, qualified_name, element,
+                                     include_builtin, include_stdlib,
+                                     include_self_dep, include_certainty)
+        
+        # Handle methods under classes
+        if element.type == "class":
+            # Find all methods for this class
+            class_methods = [
+                (qname, elem) for qname, elem in self.elements.items()
+                if elem.type == "method" and qname.startswith(qualified_name + ".")
+            ]
+            
+            for method_qualified_name, method_element in sorted(class_methods):
+                self._generate_element_xml(xml_lines, method_qualified_name, method_element,
+                                         include_builtin, include_stdlib, 
+                                         include_self_dep, include_certainty)
+        
+        xml_lines.append(f'</{tag_name}>')
+    
+    def _generate_subtags_format(self, xml_lines: List[str], qualified_name: str,
+                               element: CodeElement, include_builtin: bool,
+                               include_stdlib: bool, include_self_dep: bool,
+                               include_certainty: str):
+        """
+        PURPOSE: Generate XML with subtags format
+        DESCRIPTION: Creates separate XML tags for each docstring section
+        """
         # Add docstring information directly from element (which may have been enhanced)
         if element.purpose:
-            xml_lines.append(f'<{tag_path}_PURPOSE>')
+            purpose_tag = self._get_tag_name(qualified_name, "PURPOSE")
+            xml_lines.append(f'<{purpose_tag}>')
             xml_lines.append(self._sanitize_xml_content(element.purpose))
-            xml_lines.append(f'</{tag_path}_PURPOSE>')
+            xml_lines.append(f'</{purpose_tag}>')
         
         if element.description:
-            xml_lines.append(f'<{tag_path}_DESCRIPTION>')
+            description_tag = self._get_tag_name(qualified_name, "DESCRIPTION")
+            xml_lines.append(f'<{description_tag}>')
             xml_lines.append(self._sanitize_xml_content(element.description))
-            xml_lines.append(f'</{tag_path}_DESCRIPTION>')
+            xml_lines.append(f'</{description_tag}>')
         
         # Add attributes section (for classes mainly) 
         if element.arguments and element.type == "class":
-            xml_lines.append(f'<{tag_path}_ATTRIBUTES>')
+            attributes_tag = self._get_tag_name(qualified_name, "ATTRIBUTES")
+            xml_lines.append(f'<{attributes_tag}>')
             for arg in element.arguments:
                 xml_lines.append(self._sanitize_xml_content(arg))
-            xml_lines.append(f'</{tag_path}_ATTRIBUTES>')
+            xml_lines.append(f'</{attributes_tag}>')
         
         # Add arguments section (for methods/functions)
         if element.arguments and element.type in ["method", "function"]:
-            xml_lines.append(f'<{tag_path}_ARGUMENTS>')
+            arguments_tag = self._get_tag_name(qualified_name, "ARGUMENTS")
+            xml_lines.append(f'<{arguments_tag}>')
             for arg in element.arguments:
                 xml_lines.append(self._sanitize_xml_content(arg))
-            xml_lines.append(f'</{tag_path}_ARGUMENTS>')
+            xml_lines.append(f'</{arguments_tag}>')
         
         # Add returns section
         if element.returns:
-            xml_lines.append(f'<{tag_path}_RETURNS>')
+            returns_tag = self._get_tag_name(qualified_name, "RETURNS")
+            xml_lines.append(f'<{returns_tag}>')
             xml_lines.append(self._sanitize_xml_content(element.returns))
-            xml_lines.append(f'</{tag_path}_RETURNS>')
+            xml_lines.append(f'</{returns_tag}>')
         
         # Add contracts section (if enhanced parsing found contracts)
         if hasattr(element, 'contracts') and element.contracts:
-            xml_lines.append(f'<{tag_path}_CONTRACTS>')
+            contracts_tag = self._get_tag_name(qualified_name, "CONTRACTS")
+            xml_lines.append(f'<{contracts_tag}>')
             xml_lines.append(self._sanitize_xml_content(element.contracts))
-            xml_lines.append(f'</{tag_path}_CONTRACTS>')
+            xml_lines.append(f'</{contracts_tag}>')
         
         # Add location
         if hasattr(element, 'start_line') and hasattr(element, 'end_line'):
@@ -394,7 +450,8 @@ class CodeGraphGenerator:
                         file_path = '/'.join(parts[:-1]) + '.py'
                 
                 location = f"{file_path}#L{element.start_line}-{element.end_line}"
-                xml_lines.append(f'<{tag_path}_LOCATION>{location}</{tag_path}_LOCATION>')
+                location_tag = self._get_tag_name(qualified_name, "LOCATION")
+                xml_lines.append(f'<{location_tag}>{location}</{location_tag}>')
         
         # Add dependency edges
         if qualified_name in self.dependency_map:
@@ -412,25 +469,92 @@ class CodeGraphGenerator:
                 
                 if filtered_targets:
                     edge_type_upper = edge_type.upper()
-                    xml_lines.append(f'<{tag_path}_{edge_type_upper}>')
+                    edge_tag = self._get_tag_name(qualified_name, edge_type_upper)
+                    xml_lines.append(f'<{edge_tag}>')
                     for target in sorted(set(filtered_targets)):  # Remove duplicates and sort
                         xml_lines.append(self._sanitize_xml_content(target))
-                    xml_lines.append(f'</{tag_path}_{edge_type_upper}>')
+                    xml_lines.append(f'</{edge_tag}>')
+    
+    def _generate_text_format(self, xml_lines: List[str], qualified_name: str,
+                            element: CodeElement, include_builtin: bool,
+                            include_stdlib: bool, include_self_dep: bool,
+                            include_certainty: str):
+        """
+        PURPOSE: Generate XML with text format (indented like docstrings)
+        DESCRIPTION: Creates plain text content with indentation like project docstring format
+        """
+        content_lines = []
         
-        # Handle methods under classes
-        if element.type == "class":
-            # Find all methods for this class
-            class_methods = [
-                (qname, elem) for qname, elem in self.elements.items()
-                if elem.type == "method" and qname.startswith(qualified_name + ".")
-            ]
-            
-            for method_qualified_name, method_element in sorted(class_methods):
-                self._generate_element_xml(xml_lines, method_qualified_name, method_element,
-                                         include_builtin, include_stdlib, 
-                                         include_self_dep, include_certainty)
+        # Add docstring information in text format
+        if element.purpose:
+            content_lines.append(f"PURPOSE: {element.purpose}")
         
-        xml_lines.append(f'</{tag_path}>')
+        if element.description:
+            content_lines.append(f"DESCRIPTION: {element.description}")
+        
+        # Add attributes section (for classes mainly) 
+        if element.arguments and element.type == "class":
+            content_lines.append("ATTRIBUTES:")
+            for arg in element.arguments:
+                content_lines.append(f"    {arg}")
+        
+        # Add arguments section (for methods/functions)
+        if element.arguments and element.type in ["method", "function"]:
+            content_lines.append("ARGUMENTS:")
+            for arg in element.arguments:
+                content_lines.append(f"    {arg}")
+        
+        # Add returns section
+        if element.returns:
+            content_lines.append(f"RETURNS: {element.returns}")
+        
+        # Add contracts section (if enhanced parsing found contracts)
+        if hasattr(element, 'contracts') and element.contracts:
+            content_lines.append("CONTRACTS:")
+            # Split contracts by lines and indent properly
+            contract_lines = element.contracts.split('\n')
+            for contract_line in contract_lines:
+                if contract_line.strip():
+                    content_lines.append(f"    {contract_line.strip()}")
+        
+        # Add location
+        if hasattr(element, 'start_line') and hasattr(element, 'end_line'):
+            # Reconstruct file path from qualified name
+            parts = qualified_name.split('.')
+            if len(parts) >= 2:
+                file_path = '/'.join(parts[:-1]) + '.py'
+                if element.type == "method":
+                    # For methods, the file path needs special handling
+                    method_parts = parts[-1].split('.')
+                    if len(method_parts) > 1:
+                        file_path = '/'.join(parts[:-1]) + '.py'
+                
+                location = f"{file_path}#L{element.start_line}-{element.end_line}"
+                content_lines.append(f"LOCATION: {location}")
+        
+        # Add dependency edges
+        if qualified_name in self.dependency_map:
+            for edge_type, targets in self.dependency_map[qualified_name].items():
+                filtered_targets = []
+                for target in targets:
+                    # Find the edge to check filters
+                    matching_edges = [e for e in self.edges 
+                                    if e.source == qualified_name and e.target == target and e.edge_type == edge_type]
+                    if matching_edges:
+                        edge = matching_edges[0]
+                        if self._should_include_edge(edge, include_builtin, include_stdlib, 
+                                                   include_self_dep, include_certainty):
+                            filtered_targets.append(target)
+                
+                if filtered_targets:
+                    edge_type_upper = edge_type.upper()
+                    content_lines.append(f"{edge_type_upper}:")
+                    for target in sorted(set(filtered_targets)):  # Remove duplicates and sort
+                        content_lines.append(f"    {target}")
+        
+        # Add all content as sanitized XML text
+        if content_lines:
+            xml_lines.append(self._sanitize_xml_content('\n'.join(content_lines)))
 
 
 def main():
@@ -457,6 +581,12 @@ def main():
                        help="Exclude internal dependencies")
     parser.add_argument("--include-certainty", choices=["all", "high", "low"], default="all",
                        help="Filter by certainty level (default: all)")
+    parser.add_argument("--use-full-prefixes", action="store_true", default=False,
+                       help="Use full prefixes (auth_api_errors_ApiErrors_PURPOSE) vs simple names (PURPOSE)")
+    parser.add_argument("--use-subtags", action="store_true", default=True,
+                       help="Use subtags format vs plain text with indentation")
+    parser.add_argument("--no-subtags", action="store_false", dest="use_subtags",
+                       help="Use plain text format instead of subtags")
     
     args = parser.parse_args()
     
@@ -474,7 +604,9 @@ def main():
         include_builtin=args.include_builtin,
         include_stdlib=args.include_stdlib,
         include_self_dep=args.include_self_dep,
-        include_certainty=args.include_certainty
+        include_certainty=args.include_certainty,
+        use_full_prefixes=args.use_full_prefixes,
+        use_subtags=args.use_subtags
     )
     
     # Write output
