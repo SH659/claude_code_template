@@ -555,6 +555,31 @@ class ASTVisitor(ast.NodeVisitor):
         
         self.generic_visit(node)
     
+    def visit_Attribute(self, node: ast.Attribute):
+        # Track attribute access like Class.attribute
+        if isinstance(node.value, ast.Name):
+            obj_name = node.value.id
+            # Skip common patterns that don't indicate dependencies
+            if obj_name not in ['self', 'super', 'cls']:
+                # Check if obj_name is a class in the current module
+                resolved_obj = self.symbol_table.resolve_name(self.module_name, obj_name)
+                if resolved_obj:
+                    # This is accessing an attribute of a resolved class/module
+                    target = resolved_obj
+                    is_self_dep = self.analyzer._is_self_dependency(self.current_scope, target)
+                    
+                    self.edges.append(Edge(
+                        source=self.current_scope,
+                        target=target,
+                        edge_type="uses",
+                        certainty="high",
+                        is_builtin=self.analyzer._is_builtin(target),
+                        is_stdlib=self.analyzer._is_stdlib(target),
+                        is_self_dep=is_self_dep
+                    ))
+        
+        self.generic_visit(node)
+    
     def visit_Call(self, node: ast.Call):
         # Analyze method/function calls
         self._analyze_call(node)
