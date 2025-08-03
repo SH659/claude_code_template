@@ -11,18 +11,5 @@ When exploring modules or understanding code structure:
 3. **Efficient exploration** - Avoid directory listing when MODULE_MAP is available
 4. **Minimize context usage** - Read only necessary code sections to reduce token consumption
 
-# Documentation Standards
-
-YOU MUST follow this structured docstring format for all code elements:
-
-```python
-"""
-PURPOSE: Brief one-line statement of functionality
-DESCRIPTION: Detailed explanation of behavior and implementation
-ARGUMENTS:
-    param_name: type - Description of parameter
-RETURNS: return_type - Description of return value
-"""
-```
-
+@docs/docstring_standart.md
 @app/MODULE_MAP.md
