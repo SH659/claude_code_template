@@ -28,6 +28,21 @@ from user.services import UserService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI, container: AsyncContainer):
+    """
+    PURPOSE: Manage FastAPI application lifecycle with database initialization and admin user setup
+    DESCRIPTION: Context manager that handles application startup and shutdown phases.
+                 During startup, creates database tables and registers default admin user if configured.
+                 Properly manages dependency injection container and database connections.
+    ARGUMENTS:
+        app: FastAPI - FastAPI application instance
+        container: AsyncContainer - Dishka dependency injection container
+    RETURNS: AsyncGenerator[None, None] - Async context manager yielding control during app runtime
+    CONTRACTS:
+        POSTCONDITION:
+            - Database tables are created if they don't exist
+            - Admin user is registered if ADMIN_USERNAME and ADMIN_PASSWORD are configured
+            - Container is properly closed on shutdown
+    """
     async with container(scope=Scope.REQUEST) as request_container:
         await create_tables(await container.get(AsyncEngine))
         user_service = await request_container.get(UserService)
@@ -45,6 +60,19 @@ async def lifespan(app: FastAPI, container: AsyncContainer):
 
 # noinspection PyShadowingNames
 def create_app():
+    """
+    PURPOSE: Create and configure FastAPI application with all middleware, routes, and error handlers
+    DESCRIPTION: Factory function that sets up the complete FastAPI application including CORS middleware,
+                 API routers for all modules, and exception handlers. Configures dependency injection
+                 and application lifecycle management.
+    RETURNS: FastAPI - Fully configured FastAPI application instance ready for deployment
+    CONTRACTS:
+        POSTCONDITION:
+            - CORS middleware is configured with permissive settings
+            - All module routers are registered with appropriate prefixes
+            - Exception handlers are registered for all error types
+            - Dependency injection container is set up and integrated
+    """
     app = FastAPI(lifespan=functools.partial(lifespan, container=container))
 
     app.add_middleware(
