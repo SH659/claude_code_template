@@ -123,7 +123,16 @@ def main():
     visitor.visit_path(start_directory)
     # visitor.visit_path(start_directory)
     code_graph = visitor.get_code_graph()
-    code_graph = code_graph.subgraph('qr_code.providers.QrCodeProvider')
+    code_graph = code_graph.subgraph(
+        [
+            'qr_code.router.read_item',
+            'qr_code.router.get_all_user_qr_codes',
+            'qr_code.router.create_qr_code',
+            'qr_code.router.delete_qr_code',
+            'qr_code.router.redirect',
+            'qr_code.router.edit',
+        ]
+    )
 
     # pprint(code_graph.package)
     # pprint(code_graph.dependencies, width=200)

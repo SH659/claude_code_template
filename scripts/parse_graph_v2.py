@@ -236,19 +236,22 @@ class CodeGraph:
             )
 
     def subgraph(
-        self, package_path: str, dependant_depth: int = float('inf'), dependent_depth: int = float('inf')
+        self, package_paths: list[str], dependant_depth: int = float('inf'), dependent_depth: int = float('inf')
     ) -> 'CodeGraph':
         """
         package_path like "core.serializer.Serializer" where Serializer is class.
         """
-        node = self.package.get_node_from_package_path_soft(package_path)
+        start_nodes = [
+            self.package.get_node_from_package_path_soft(package_path)
+            for package_path in package_paths
+        ]
 
         dependants_visited = []
         dependants_in_depth = []
         while dependant_depth > 0:
             dependant_depth -= 1
             if not dependants_in_depth:
-                new_dependants = self.get_dependants([node])
+                new_dependants = self.get_dependants(start_nodes)
             else:
                 new_dependants = self.get_dependants(dependants_in_depth[-1])
             if not new_dependants:
@@ -263,7 +266,7 @@ class CodeGraph:
         while dependent_depth > 0:
             dependent_depth -= 1
             if not dependents_in_depth:
-                new_dependents = self.get_dependents([node])
+                new_dependents = self.get_dependents(start_nodes)
             else:
                 new_dependents = self.get_dependents(dependents_in_depth[-1])
             if not new_dependents:
@@ -274,18 +277,21 @@ class CodeGraph:
             dependents_in_depth.append(new_dependents)
 
         seen_ids = set()
-        nodes = []
+        result_nodes = []
 
-        for n in [node] + dependants_visited + dependents_visited:
+        for n in start_nodes + dependants_visited + dependents_visited:
             node_id = id(n)
             if node_id not in seen_ids:
                 seen_ids.add(node_id)
-                nodes.append(n)
+                result_nodes.append(n)
 
-        # pprint(nodes)
+        # pprint(result_nodes)
 
-        dependencies = [dep for dep in self.dependencies if (dep.dependant in nodes) or (dep.dependant in nodes)]
-        return CodeGraph(nodes, dependencies)
+        dependencies = [
+            dep for dep in self.dependencies
+            if (dep.dependant in result_nodes) or (dep.dependant in result_nodes)
+        ]
+        return CodeGraph(result_nodes, dependencies)
 
     def get_dependants(self, nodes: list[Node]) -> list[Node]:
         """dependants - things that depend ON this object."""
