@@ -123,7 +123,7 @@ def main():
     visitor.visit_path(start_directory)
     # visitor.visit_path(start_directory)
     code_graph = visitor.get_code_graph()
-    code_graph = code_graph.subgraph('qr_code.router.edit')
+    code_graph = code_graph.subgraph('qr_code.providers.QrCodeProvider')
 
     # pprint(code_graph.package)
     # pprint(code_graph.dependencies, width=200)

@@ -243,7 +243,7 @@ class CodeGraph:
         """
         node = self.package.get_node_from_package_path_soft(package_path)
 
-        visited = []
+        dependants_visited = []
         dependants_in_depth = []
         while dependant_depth > 0:
             dependant_depth -= 1
@@ -254,10 +254,11 @@ class CodeGraph:
             if not new_dependants:
                 break
 
-            new_dependants = [node for node in new_dependants if node not in visited]
-            visited.extend(new_dependants)
+            new_dependants = [node for node in new_dependants if node not in dependants_visited]
+            dependants_visited.extend(new_dependants)
             dependants_in_depth.append(new_dependants)
 
+        dependents_visited = []
         dependents_in_depth = []
         while dependent_depth > 0:
             dependent_depth -= 1
@@ -268,11 +269,21 @@ class CodeGraph:
             if not new_dependents:
                 break
 
-            new_dependents = [node for node in new_dependents if node not in visited]
-            visited.extend(new_dependents)
+            new_dependents = [node for node in new_dependents if node not in dependents_visited]
+            dependents_visited.extend(new_dependents)
             dependents_in_depth.append(new_dependents)
 
-        nodes = [node] + visited
+        seen_ids = set()
+        nodes = []
+
+        for n in [node] + dependants_visited + dependents_visited:
+            node_id = id(n)
+            if node_id not in seen_ids:
+                seen_ids.add(node_id)
+                nodes.append(n)
+
+        # pprint(nodes)
+
         dependencies = [dep for dep in self.dependencies if (dep.dependant in nodes) or (dep.dependant in nodes)]
         return CodeGraph(nodes, dependencies)
 
