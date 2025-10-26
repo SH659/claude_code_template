@@ -47,7 +47,7 @@ def present_function_dependency_name(func: FunctionNode) -> str:
 
 
 def present_function(func: FunctionNode) -> str:
-    return f'object "{func.name}"'
+    return f'object "{func.name}" as {func.module_path}'  # use "as" to avoid plantuml object already exist error
 
 
 def present_node(node: Node) -> str:
@@ -125,13 +125,9 @@ def main():
     code_graph = visitor.get_code_graph()
     code_graph = code_graph.subgraph(
         [
-            'qr_code.router.read_item',
-            'qr_code.router.get_all_user_qr_codes',
-            'qr_code.router.create_qr_code',
-            'qr_code.router.delete_qr_code',
-            'qr_code.router.redirect',
-            'qr_code.router.edit',
-        ]
+            'core.models.Model'
+        ],
+        dependant_depth=3
     )
 
     # pprint(code_graph.package)
